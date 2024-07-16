@@ -4906,36 +4906,65 @@ public class GroupMetadataManager {
     }
 
     /**
-     * Replays ConsumerGroupRegularExpressionKey/Value to update the hard state of
-     * the consumer group.
+     * Replays StreamsGroupMetadataKey/Value to update the hard state of
+     * the Streams group. It updates the group epoch of the Streams
+     * group or deletes the Streams group.
      *
-     * @param key   A ConsumerGroupRegularExpressionKey key.
-     * @param value A ConsumerGroupRegularExpressionValue record.
+     * @param key   A StreamsGroupMetadataKey key.
+     * @param value A StreamsGroupMetadataValue record.
      */
     public void replay(
-        ConsumerGroupRegularExpressionKey key,
-        ConsumerGroupRegularExpressionValue value
+        StreamsGroupMetadataKey key,
+        StreamsGroupMetadataValue value
     ) {
         String groupId = key.groupId();
-        String regex = key.regularExpression();
 
         if (value != null) {
-            ConsumerGroup group = getOrMaybeCreatePersistedConsumerGroup(groupId, true);
-            group.updateResolvedRegularExpression(
-                regex,
-                new ResolvedRegularExpression(
-                    new HashSet<>(value.topics()),
-                    value.version(),
-                    value.timestamp()
-                )
-            );
+            StreamsGroup streamsGroup = getOrMaybeCreatePersistedStreamsGroup(groupId, true);
+            streamsGroup.setGroupEpoch(value.epoch());
         } else {
-            try {
-                ConsumerGroup group = getOrMaybeCreatePersistedConsumerGroup(groupId, false);
-                group.removeResolvedRegularExpression(regex);
-            } catch (GroupIdNotFoundException ex) {
-                // If the group does not exist, we can ignore the tombstone.
+            StreamsGroup streamsGroup = getOrMaybeCreatePersistedStreamsGroup(groupId, false);
+            if (!streamsGroup.members().isEmpty()) {
+                throw new IllegalStateException("Received a tombstone record to delete group " + groupId
+                    + " but the group still has " + streamsGroup.members().size() + " members.");
             }
+            if (!streamsGroup.targetAssignment().isEmpty()) {
+                throw new IllegalStateException("Received a tombstone record to delete group " + groupId
+                    + " but the target assignment still has " + streamsGroup.targetAssignment().size()
+                    + " members.");
+            }
+            if (streamsGroup.assignmentEpoch() != -1) {
+                throw new IllegalStateException("Received a tombstone record to delete group " + groupId
+                    + " but did not receive StreamsGroupTargetAssignmentMetadataValue tombstone.");
+            }
+            removeGroup(groupId);
+        }
+
+    }
+
+    /**
+     * Replays StreamsGroupPartitionMetadataKey/Value to update the hard state of
+     * the streams group. It updates the subscription metadata of the streams
+     * group.
+     *
+     * @param key   A StreamsGroupPartitionMetadataKey key.
+     * @param value A StreamsGroupPartitionMetadataValue record.
+     */
+    public void replay(
+        StreamsGroupPartitionMetadataKey key,
+        StreamsGroupPartitionMetadataValue value
+    ) {
+        String groupId = key.groupId();
+        StreamsGroup streamsGroup = getOrMaybeCreatePersistedStreamsGroup(groupId, false);
+
+        if (value != null) {
+            Map<String, org.apache.kafka.coordinator.group.streams.TopicMetadata> subscriptionMetadata = new HashMap<>();
+            value.topics().forEach(topicMetadata -> {
+                subscriptionMetadata.put(topicMetadata.topicName(), org.apache.kafka.coordinator.group.streams.TopicMetadata.fromRecord(topicMetadata));
+            });
+            streamsGroup.setSubscriptionMetadata(subscriptionMetadata);
+        } else {
+            streamsGroup.setSubscriptionMetadata(Collections.emptyMap());
         }
     }
 
@@ -5000,6 +5029,7 @@ public class GroupMetadataManager {
             if (!shareGroup.members().isEmpty()) {
                 throw new IllegalStateException("Received a tombstone record to delete group " + groupId
                     + " but the group still has " + shareGroup.members().size() + " members.");
+            }
             if (!shareGroup.targetAssignment().isEmpty()) {
                 throw new IllegalStateException("Received a tombstone record to delete group " + groupId
                     + " but the target assignment still has " + shareGroup.targetAssignment().size()
