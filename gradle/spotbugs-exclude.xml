@@ -163,6 +163,7 @@ For a detailed description of spotbugs bug categories, see https://spotbugs.read
              Given that, this bug pattern doesn't make sense for Scala code. -->
         <Or>
             <Class name="kafka.log.Log"/>
+            <Class name="kafka.log.LocalLog$"/>
         </Or>
         <Bug pattern="REC_CATCH_EXCEPTION"/>
     </Match>
@@ -560,6 +561,11 @@ For a detailed description of spotbugs bug categories, see https://spotbugs.read
             <Class name="org.apache.kafka.clients.Metadata$LeaderAndEpoch"/>
         </Or>
         <Bug pattern="SING_SINGLETON_HAS_NONPRIVATE_CONSTRUCTOR"/>
+    </Match>
+
+    <Match>
+        <Class name="org.apache.kafka.coordinator.group.streams.CurrentAssignmentBuilder"/>
+        <Bug pattern="URF_UNREAD_FIELD"/>
     </Match>
 
 </FindBugsFilter>
