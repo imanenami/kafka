@@ -120,6 +120,7 @@ import org.apache.kafka.common.errors.SnapshotNotFoundException;
 import org.apache.kafka.common.errors.StaleBrokerEpochException;
 import org.apache.kafka.common.errors.StaleMemberEpochException;
 import org.apache.kafka.common.errors.StreamsGroupUninitializedException;
+import org.apache.kafka.common.errors.StreamsInconsistentInternalTopicsException;
 import org.apache.kafka.common.errors.StreamsInconsistentTopologyException;
 import org.apache.kafka.common.errors.StreamsInvalidTopologyException;
 import org.apache.kafka.common.errors.StreamsMissingSourceTopicsException;
