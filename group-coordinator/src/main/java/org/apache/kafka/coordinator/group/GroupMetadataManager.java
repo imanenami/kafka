@@ -2226,6 +2226,7 @@ public class GroupMetadataManager {
         String rackId,
         int rebalanceTimeoutMs,
         final String topologyId,
+        final List<StreamsGroupHeartbeatRequestData.Subtopology> clientTopology,
         String clientId,
         String clientHost,
         List<TaskIds> ownedActiveTasks,
@@ -2309,7 +2310,7 @@ public class GroupMetadataManager {
             .build();
 
         int groupEpoch = group.groupEpoch();
-        Map<String, org.apache.kafka.coordinator.group.streams.TopicMetadata> subscriptionMetadata = group.subscriptionMetadata();
+        Map<String, org.apache.kafka.coordinator.group.streams.TopicMetadata> partitionMetadata = group.partitionMetadata();
 
         boolean bumpGroupEpoch = hasStreamsMemberMetadataChanged(
             groupId,
@@ -2318,9 +2319,30 @@ public class GroupMetadataManager {
             records
         );
 
-        if (bumpGroupEpoch || group.hasMetadataExpired(currentTimeMs)) {
-            // The subscription metadata is updated when the refresh deadline has been reached.
-            subscriptionMetadata = group.computeSubscriptionMetadata(
+        // 2. Initialize/Update the group topology.
+        // TODO: Topology updates will come later
+        if (clientTopology != null && group.topology() == null) {
+
+            log.info("[GroupId {}] Member {} initialized the topology {}", groupId, memberId, topologyId);
+
+            StreamsGroupTopologyValue recordValue = convertToStreamsGroupTopologyRecord(clientTopology);
+
+            records.add(newStreamsGroupTopologyRecord(groupId, recordValue));
+
+            final Map<String, StreamsGroupTopologyValue.Subtopology> subtopologyMap = recordValue.topology().stream()
+                .collect(Collectors.toMap(StreamsGroupTopologyValue.Subtopology::subtopologyId, x -> x));
+            final StreamsTopology topology = new StreamsTopology(topologyId, subtopologyMap);
+
+            group.setTopology(topology);
+
+            bumpGroupEpoch = true;
+        }
+
+        // 3. Configure the partition metadata and create internal topics if needed.
+        if (bumpGroupEpoch || group.hasMetadataExpired(currentTimeMs) || group.configuredTopology() == null || !group.configuredTopology().isReady()) {
+
+            // The partition metadata is updated when the refresh deadline has been reached.
+            partitionMetadata = group.computePartitionMetadata(
                 metadataImage.topics(),
                 metadataImage.cluster()
             );
@@ -2405,7 +2427,14 @@ public class GroupMetadataManager {
             response.setWarmupTasks(createStreamsGroupHeartbeatResponseTaskIds(updatedMember.assignedWarmupTasks()));
         }
 
-        return new CoordinatorResult<>(records, response);
+
+        Map<String, CreatableTopic> internalTopicsToBeCreated = Collections.emptyMap();
+        if (group.configuredTopology() != null) {
+            internalTopicsToBeCreated = group.configuredTopology().internalTopicsToBeCreated();
+            // TODO: Internal topic validation status
+        }
+
+        return new CoordinatorResult<>(records, new StreamsGroupHeartbeatResult(response, internalTopicsToBeCreated));
     }
 
     private List<StreamsGroupHeartbeatResponseData.TaskIds> createStreamsGroupHeartbeatResponseTaskIds(final Map<String, Set<Integer>> taskIds) {

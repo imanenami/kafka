@@ -59,6 +59,7 @@ import org.apache.kafka.common.message.ShareGroupHeartbeatRequestData;
 import org.apache.kafka.common.message.ShareGroupHeartbeatResponseData;
 import org.apache.kafka.common.message.StreamsGroupDescribeResponseData;
 import org.apache.kafka.common.message.StreamsGroupHeartbeatRequestData;
+import org.apache.kafka.common.message.StreamsGroupHeartbeatRequestData.TopicInfo;
 import org.apache.kafka.common.message.StreamsGroupHeartbeatResponseData;
 import org.apache.kafka.common.message.StreamsGroupInitializeRequestData;
 import org.apache.kafka.common.message.StreamsGroupInitializeResponseData;
@@ -98,8 +99,9 @@ import org.apache.kafka.coordinator.group.modern.share.ShareGroupBuilder;
 import org.apache.kafka.coordinator.group.modern.share.ShareGroupMember;
 import org.apache.kafka.coordinator.group.streams.CoordinatorStreamsRecordHelpers;
 import org.apache.kafka.coordinator.group.streams.StreamsGroup;
+import org.apache.kafka.coordinator.group.streams.StreamsGroup.StreamsGroupState;
 import org.apache.kafka.coordinator.group.streams.StreamsGroupBuilder;
-import org.apache.kafka.coordinator.group.streams.StreamsGroupInitializeResult;
+import org.apache.kafka.coordinator.group.streams.StreamsGroupHeartbeatResult;
 import org.apache.kafka.coordinator.group.streams.StreamsGroupMember;
 import org.apache.kafka.coordinator.group.streams.TaskAssignmentTestUtil;
 import org.apache.kafka.image.MetadataDelta;
@@ -821,13 +823,50 @@ public class GroupMetadataManagerTest {
             result.response()
         );
 
-        // TODO: Need to check the generated records. Adapt this unit test after merging of
-        //       initilization & heartbeat
+        StreamsGroupHeartbeatResponseData response = result.response().responseData();
+        assertEquals(Errors.NONE.code(), response.errorCode());
+        assertFalse(response.memberId().isEmpty());
+        assertEquals(2, response.memberEpoch());
+        assertTrue(response.activeTasks().isEmpty());
+        assertTrue(response.standbyTasks().isEmpty());
+        assertTrue(response.warmupTasks().isEmpty());
+        List<CoordinatorRecord> coordinatorRecords = result.records();
+        assertEquals(5, coordinatorRecords.size());
+        assertTrue(coordinatorRecords.contains(CoordinatorStreamsRecordHelpers.newStreamsGroupEpochRecord(groupId, 2)));
+        StreamsGroupMember member = new StreamsGroupMember.Builder(response.memberId())
+            .setClientId("client")
+            .setClientHost("localhost/127.0.0.1")
+            .setRebalanceTimeoutMs(rebalanceTimeoutMs)
+            .setTopologyId(topologyId)
+            .setProcessId(processId)
+            .build();
+        assertTrue(coordinatorRecords.contains(CoordinatorStreamsRecordHelpers.newStreamsGroupMemberRecord(groupId, member)));
+        assertTrue(coordinatorRecords.contains(CoordinatorStreamsRecordHelpers.newStreamsGroupTargetAssignmentEpochRecord(groupId, 2)));
+        assertTrue(coordinatorRecords.contains(
+            CoordinatorStreamsRecordHelpers.newStreamsGroupTargetAssignmentRecord(
+                groupId,
+                member.memberId(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Collections.emptyMap()
+            )
+        ));
+        StreamsGroupMember updatedMember = new org.apache.kafka.coordinator.group.streams.CurrentAssignmentBuilder(member)
+            .withTargetAssignment(
+                1,
+                new org.apache.kafka.coordinator.group.streams.Assignment(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap())
+            )
+            .withOwnedActiveTasks(Collections.emptyList())
+            .withOwnedStandbyTasks(Collections.emptyList())
+            .withOwnedWarmupTasks(Collections.emptyList())
+            .build();
+        assertEquals(StreamsGroup.StreamsGroupState.NOT_READY, context.streamsGroupState("group-id"));
     }
 
     private StreamsGroupHeartbeatRequestData buildFirstStreamsGroupHeartbeatRequest(
         final String groupId,
         final String topologyId,
+        final List<StreamsGroupHeartbeatRequestData.Subtopology> topology,
         final String processId,
         final int rebalanceTimeoutMs) {
 
@@ -839,6 +878,7 @@ public class GroupMetadataManagerTest {
             .setRackId(null)
             .setRebalanceTimeoutMs(rebalanceTimeoutMs)
             .setTopologyId(topologyId)
+            .setTopology(topology)
             .setActiveTasks(Collections.emptyList())
             .setStandbyTasks(Collections.emptyList())
             .setWarmupTasks(Collections.emptyList())
@@ -9337,7 +9377,7 @@ public class GroupMetadataManagerTest {
                         TaskAssignmentTestUtil.mkAssignment(Collections.emptyMap())
                     )
                 ))
-                .setGroupState(StreamsGroup.StreamsGroupState.INITIALIZING.toString())
+                .setGroupState(StreamsGroupState.NOT_READY.toString())
         );
         List<StreamsGroupDescribeResponseData.DescribedGroup> actual = context.sendStreamsGroupDescribe(streamsGroupIds);
 
@@ -9407,7 +9447,7 @@ public class GroupMetadataManagerTest {
                 memberBuilder1.build().asStreamsGroupDescribeMember(TaskAssignmentTestUtil.mkAssignment(Collections.emptyMap())),
                 memberBuilder2.build().asStreamsGroupDescribeMember(TaskAssignmentTestUtil.mkAssignment(assignmentMap, assignmentMap, assignmentMap))
             ))
-            .setGroupState(StreamsGroup.StreamsGroupState.INITIALIZING.toString())
+            .setGroupState(StreamsGroup.StreamsGroupState.NOT_READY.toString())
             .setGroupEpoch(epoch + 2);
         assertEquals(1, actual.size());
         assertEquals(describedGroup, actual.get(0));

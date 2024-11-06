@@ -27,6 +27,7 @@ import org.apache.kafka.common.utils.{BufferSupplier, Time}
 import org.apache.kafka.coordinator.group
 import org.apache.kafka.coordinator.group.streams.StreamsGroupInitializeResult
 import org.apache.kafka.coordinator.group.OffsetAndMetadata
+import org.apache.kafka.coordinator.group.streams.StreamsGroupHeartbeatResult
 import org.apache.kafka.image.{MetadataDelta, MetadataImage}
 import org.apache.kafka.server.common.RequestLocal
 import org.apache.kafka.server.util.FutureUtils
