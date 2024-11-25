@@ -24,6 +24,7 @@ import org.apache.kafka.common.security.token.delegation.TokenInformation;
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCredentialCallback;
 
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Map;
 
@@ -37,6 +38,7 @@ public class ScramServerCallbackHandler implements AuthenticateCallbackHandler {
     private final CredentialCache.Cache<ScramCredential> credentialCache;
     private final DelegationTokenCache tokenCache;
     private String saslMechanism;
+    private static final String JAAS_USER_PREFIX = "user_";
 
     public ScramServerCallbackHandler(CredentialCache.Cache<ScramCredential> credentialCache,
                                       DelegationTokenCache tokenCache) {
@@ -47,6 +49,28 @@ public class ScramServerCallbackHandler implements AuthenticateCallbackHandler {
     @Override
     public void configure(Map<String, ?> configs, String mechanism, List<AppConfigurationEntry> jaasConfigEntries) {
         this.saslMechanism = mechanism;
+
+        for (AppConfigurationEntry cfg: jaasConfigEntries) {
+            Map<String, ?> options = cfg.getOptions();
+            ScramFormatter formatter;
+
+            ScramMechanism scramMechanism = ScramMechanism.forMechanismName(mechanism);
+            try {
+                formatter = new ScramFormatter(scramMechanism);
+            } catch (NoSuchAlgorithmException e) {
+                return;
+            }
+
+            for (Map.Entry<String, ?> entry : options.entrySet()) {
+                if (entry.getKey().startsWith(JAAS_USER_PREFIX)) {
+                    String username = entry.getKey().replaceFirst(JAAS_USER_PREFIX, "");
+                    String password = (String) entry.getValue();
+
+                    credentialCache.put(username, formatter.generateCredential(password, 4096));
+                }
+            }
+        }
+
     }
 
     @Override
